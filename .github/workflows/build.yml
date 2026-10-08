@@ -13,10 +13,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract project
+      - name: Find and extract AzurBot
         shell: pwsh
         run: |
-          Expand-Archive -Path "AzurBot_Windows_GitHub_Actions.zip" -DestinationPath "source" -Force
+          $zip = Get-ChildItem -Path . -Filter "*.zip" -File |
+            Where-Object { $_.Name -like "AzurBot_Windows*" } |
+            Select-Object -First 1
+
+          if (-not $zip) {
+            Write-Error "ZIP AzurBot introuvable"
+            exit 1
+          }
+
+          Write-Host "ZIP trouvé : $($zip.Name)"
+          Expand-Archive -Path $zip.FullName -DestinationPath source -Force
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
