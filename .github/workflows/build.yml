@@ -1,0 +1,35 @@
+name: Build AzurBot Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract project
+        shell: pwsh
+        run: |
+          Expand-Archive -Path "AzurBot_Windows_GitHub_Actions.zip" -DestinationPath "source" -Force
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build EXE
+        shell: pwsh
+        run: |
+          dotnet publish "source/AzurBot.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
+
+      - name: Upload AzurBot
+        uses: actions/upload-artifact@v4
+        with:
+          name: AzurBot-Windows
+          path: publish/
