@@ -40,15 +40,23 @@ public sealed class MainForm : Form
             Text = "AZUR BOT",
             Font = new Font("Segoe UI", 18, FontStyle.Bold),
             AutoSize = true,
-            Left = 25, Top = 18
+            Left = 25,
+            Top = 18
         };
 
-        startButton.Left = 25; startButton.Top = 65;
-        stopButton.Left = 190; stopButton.Top = 65;
-        status.Left = 25; status.Top = 120;
-        thresholdLabel.Left = 25; thresholdLabel.Top = 150;
-        thresholdTrackBar.Left = 25; thresholdTrackBar.Top = 172;
-        hpLabel.Left = 25; hpLabel.Top = 220;
+        startButton.Left = 25;
+        startButton.Top = 65;
+        stopButton.Left = 190;
+        stopButton.Top = 65;
+        status.Left = 25;
+        status.Top = 120;
+        thresholdLabel.Left = 25;
+        thresholdLabel.Top = 150;
+        thresholdTrackBar.Left = 25;
+        thresholdTrackBar.Top = 172;
+        hpLabel.Left = 25;
+        hpLabel.Top = 220;
+
         thresholdTrackBar.Scroll += (_, _) =>
         {
             int v = thresholdTrackBar.Value;
@@ -67,6 +75,7 @@ public sealed class MainForm : Form
     private void StartBot()
     {
         if (busy) return;
+
         busy = true;
         cts = new CancellationTokenSource();
         startButton.Enabled = false;
@@ -86,19 +95,20 @@ public sealed class MainForm : Form
 
     private void SetStatus(string text)
     {
-        if (IsDisposed) return;
-        BeginInvoke(() => status.Text = text);
+        if (IsDisposed || !IsHandleCreated) return;
+        try { BeginInvoke(() => status.Text = text); }
+        catch (InvalidOperationException) { }
     }
 
     private void SetHp(double? hp)
     {
-        if (IsDisposed) return;
-        BeginInvoke(() => hpLabel.Text = hp.HasValue ? $"HP : {hp.Value:0} %" : "HP : --");
+        if (IsDisposed || !IsHandleCreated) return;
+        try { BeginInvoke(() => hpLabel.Text = hp.HasValue ? $"HP : {hp.Value:0} %" : "HP : --"); }
+        catch (InvalidOperationException) { }
     }
 
     private async Task LoopAsync(CancellationToken token)
     {
-        // Avoid reacting to a single OCR misread: require three consecutive low-HP readings.
         int lowHpReadings = 0;
 
         while (!token.IsCancellationRequested)
@@ -116,7 +126,7 @@ public sealed class MainForm : Form
 
                 var text = await ReadFrenchTextAsync(bmp);
 
-                // Hero level-up popup: put exactly one point into Force, then confirm.
+                // Niveau du héros : ajouter un point en Force puis confirmer.
                 if (Contains(text, "CONFIRMER") && Contains(text, "Force"))
                 {
                     SetStatus("Niveau du héros : attente avant + Force");
@@ -124,11 +134,13 @@ public sealed class MainForm : Form
 
                     using var levelScreen = CaptureVirtualScreen();
                     bool forceClicked = await ClickForcePlusAsync(levelScreen, token);
+
                     if (forceClicked)
                     {
                         await Task.Delay(1200, token);
                         using var bmp2 = CaptureVirtualScreen();
                         var text2 = await ReadFrenchTextAsync(bmp2);
+
                         if (Contains(text2, "CONFIRMER"))
                         {
                             SetStatus("Force ajoutée : clic sur CONFIRMER");
@@ -143,6 +155,12 @@ public sealed class MainForm : Form
                     {
                         SetStatus("Niveau détecté, ligne Force introuvable : je n'ai pas confirmé");
                     }
+                }
+                // NOUVEAU : entrée dans le portail du dédale de Pirane.
+                else if (Contains(text, "FRANCHIR LE PORTAIL"))
+                {
+                    SetStatus("Portail détecté : franchissement");
+                    await ClickTextAsync(bmp, text, "FRANCHIR LE PORTAIL", token);
                 }
                 else if (Contains(text, "COMPRIS"))
                 {
@@ -187,11 +205,15 @@ public sealed class MainForm : Form
 
                 await Task.Delay(900, token);
             }
-            catch (OperationCanceledException) { break; }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
             catch (Exception ex)
             {
                 SetStatus("Erreur : " + ex.Message);
-                await Task.Delay(1500, token);
+                try { await Task.Delay(1500, token); }
+                catch (OperationCanceledException) { break; }
             }
         }
     }
@@ -226,8 +248,6 @@ public sealed class MainForm : Form
 
         var result = await engine.RecognizeAsync(softwareBitmap);
 
-        // The player's card is on the left. Ignore PV labels in the right-hand
-        // enemy card and in the combat log.
         var pvLine = result.Lines
             .Select(l => new { Line = l, Rect = GetLineRect(l) })
             .Where(x => x.Rect.Width > 0
@@ -244,8 +264,6 @@ public sealed class MainForm : Form
         double maxDistanceY = Math.Max(24, pvRect.Height * 2.2);
         double maxDistanceX = bmp.Width * 0.28;
 
-        // Prefer a current/max fraction close to the player's PV label,
-        // and to its right. This excludes enemy HP fractions on the right.
         var fractions = result.Lines
             .Select(l => new { Rect = GetLineRect(l), Pair = ParseHpPair(l.Text) })
             .Where(x => x.Pair.HasValue && x.Rect.Width > 0)
@@ -273,8 +291,6 @@ public sealed class MainForm : Form
             return Math.Clamp(100.0 * pair.Current / pair.Maximum, 0, 100);
         }
 
-        // Fallback: estimate the green HP bar directly under the player's PV
-        // label. Keep the scan narrow so it cannot reach the enemy card.
         int x0 = Math.Clamp((int)pvRect.X - 2, 0, bmp.Width - 1);
         int x1 = Math.Clamp(x0 + (int)(bmp.Width * 0.25), x0 + 1, bmp.Width);
         int y0 = Math.Clamp((int)(pvRect.Y + pvRect.Height), 0, bmp.Height - 1);
@@ -304,7 +320,6 @@ public sealed class MainForm : Form
         }
 
         if (bestRun < 8) return null;
-
         return Math.Clamp(100.0 * bestRun / expectedBarWidthSamples, 0, 100);
     }
 
@@ -435,7 +450,6 @@ public sealed class MainForm : Form
             return;
         }
 
-        // Existing fallback for the supplied portrait layout.
         int fallbackX = (int)(bmp.Width * 0.50);
         int fallbackY = (int)(bmp.Height * 0.91);
         NativeClick.Click(fallbackX + SystemInformation.VirtualScreen.Left,
@@ -479,7 +493,8 @@ public sealed class MainForm : Form
             int x = (int)((left + right) / 2);
             int y = (int)((top + bottom) / 2);
 
-            if (x < 5 || y < 5 || x >= bmp.Width - 5 || y >= bmp.Height - 5) return;
+            if (x < 5 || y < 5 || x >= bmp.Width - 5 || y >= bmp.Height - 5)
+                return;
 
             NativeClick.Click(x + SystemInformation.VirtualScreen.Left,
                               y + SystemInformation.VirtualScreen.Top);
