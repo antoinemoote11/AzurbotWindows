@@ -16,9 +16,7 @@ jobs:
       - name: Find and extract AzurBot
         shell: pwsh
         run: |
-          $zip = Get-ChildItem -Path . -Filter "*.zip" -File |
-            Where-Object { $_.Name -like "AzurBot_Windows*" } |
-            Select-Object -First 1
+          $zip = Get-Item -Path "AzurBot_Windows_FINAL102_CORRIGE.zip" -ErrorAction SilentlyContinue
 
           if (-not $zip) {
             Write-Error "ZIP AzurBot introuvable"
